@@ -1,0 +1,33 @@
+# Local secrets; only the example configuration is publishable.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Python environments and generated files.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.model_cache/
+
+# Runtime data may contain private conversations and user memories.
+projects/enterprise_knowledge_agent/data/
+projects/enterprise_knowledge_agent/logs/
+projects/enterprise_knowledge_agent/reports/
+*.sqlite*
+*.db
+*.log
+tmp/
+
+# Local editor and OS files.
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store

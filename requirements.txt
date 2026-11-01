@@ -1,0 +1,1 @@
+-r projects/enterprise_knowledge_agent/requirements.txt

@@ -1,0 +1,58 @@
+[
+  {
+    "case_id": "overtime-pay",
+    "question": "法定休假日安排劳动者工作，应该支付多少工资报酬？",
+    "expected_refused": false,
+    "expected_source_ids": ["劳动法#第四十四条"],
+    "required_facts": ["百分之三百"]
+  },
+  {
+    "case_id": "work-hours",
+    "question": "劳动者每日工作时间最长不超过多少小时？",
+    "expected_refused": false,
+    "expected_source_ids": ["劳动法#第三十六条"],
+    "required_facts": ["八小时"]
+  },
+  {
+    "case_id": "probation-period",
+    "question": "劳动合同约定的试用期最长不能超过多久？",
+    "expected_refused": false,
+    "expected_source_ids": ["劳动法#第二十一条", "劳动合同法#第十九条"],
+    "required_facts": ["六个月"]
+  },
+  {
+    "case_id": "maternity-leave",
+    "question": "女职工生育可以享受多长时间的产假？",
+    "expected_refused": false,
+    "expected_source_ids": ["劳动法#第六十二条"],
+    "required_facts": ["九十天"]
+  },
+  {
+    "case_id": "resignation-notice",
+    "question": "劳动者主动辞职，需要提前多少天书面通知用人单位？",
+    "expected_refused": false,
+    "expected_source_ids": ["劳动法#第三十一条", "劳动合同法#第三十七条"],
+    "required_facts": ["三十日"]
+  },
+  {
+    "case_id": "minimum-wage",
+    "question": "用人单位支付劳动者的工资能不能低于当地最低工资标准？",
+    "expected_refused": false,
+    "expected_source_ids": ["劳动法#第四十八条"],
+    "required_facts": ["不得低于"]
+  },
+  {
+    "case_id": "unsigned-contract",
+    "question": "公司一直不跟我签书面劳动合同，要承担什么责任？",
+    "expected_refused": false,
+    "expected_source_ids": ["劳动合同法#第八十二条", "劳动合同法#第十条"],
+    "required_facts": ["二倍"]
+  },
+  {
+    "case_id": "out-of-scope",
+    "question": "今天北京会下雨吗？",
+    "expected_refused": true,
+    "expected_source_ids": null,
+    "required_facts": []
+  }
+]
