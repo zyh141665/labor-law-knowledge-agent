@@ -202,6 +202,18 @@ class AgentApiClient:
         """
         return self._request("GET", "/me")
 
+    def auth_config(self) -> dict[str, Any]:
+        return self._request("GET", "/auth/config")  # 登录前公开的模式与注册开关。
+
+    def register(self, username: str, password: str) -> dict[str, Any]:
+        return self._request("POST", "/auth/register", json={"username": username, "password": password})
+
+    def login(self, username: str, password: str) -> dict[str, Any]:
+        return self._request("POST", "/auth/login", json={"username": username, "password": password})
+
+    def logout(self) -> dict[str, Any]:
+        return self._request("POST", "/auth/logout")  # 后端删除当前令牌摘要。
+
     # ------------------------------------------------------------------
     # 对话
     # ------------------------------------------------------------------

@@ -7,6 +7,7 @@ langgraph-checkpoint-sqlite==3.1.1
 numpy==2.5.3
 openai==3.11.0
 pydantic==2.13.5
+pypdf==6.21.4
 python-dotenv==1.2.3
 streamlit==1.66.1
 typing_extensions==4.16.0

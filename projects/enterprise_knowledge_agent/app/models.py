@@ -11,3 +11,4 @@ class AgentState(TypedDict):
     final_answer: dict[str, object] | None
     round_number: int
     max_rounds: int
+    tool_results: list[dict[str, object]]  # 只记录当前用户回合的工具结果。

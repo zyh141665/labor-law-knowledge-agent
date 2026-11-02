@@ -24,6 +24,9 @@ if str(PROJECT_ROOT) not in sys.path:
 import streamlit as st
 
 from app.api_client import AgentApiClient, AgentApiError
+from app.login_ui import clear_login, get_session_client, logout, render_login
+
+st.set_page_config(page_title="劳动法知识库 Agent", page_icon="⚖️", layout="wide")
 
 
 # ---------------------------------------------------------------------------
@@ -31,9 +34,8 @@ from app.api_client import AgentApiClient, AgentApiError
 # ---------------------------------------------------------------------------
 
 
-@st.cache_resource(show_spinner="正在连接后端…")
 def get_client() -> AgentApiClient:
-    return AgentApiClient()
+    return get_session_client()  # 每个浏览器会话一份，不再跨用户共享。
 
 
 client = get_client()
@@ -110,12 +112,7 @@ def describe_error(error: AgentApiError) -> str:
             "后端首次启动要加载模型，看到 `Uvicorn running` 后再点下面的重试。"
         )
     if error.is_unauthorized:
-        return (
-            "后端拒绝了本次请求（HTTP 401）：访问令牌缺失或不匹配。\n\n"
-            "检查两处是否一致——后端的 `AGENT_API_TOKENS`，"
-            "和前端进程的 `AGENT_API_TOKEN`（前者是 `token:用户` 的列表，"
-            "后者取其中一个 token 原样填入）。改完两个进程都要重启。"
-        )
+        return "登录已失效或已退出，请重新登录。"
     if error.is_user_mismatch:
         return (
             "身份对不上（HTTP 403）：令牌属于另一个用户，"
@@ -178,7 +175,7 @@ def render_citations(citations: list[dict], refused: bool) -> None:
 def render_answer(answer: dict) -> None:
     """渲染一次已通过校验的 Agent 结果。"""
     if answer.get("refused"):
-        st.warning("证据不足，Agent 拒绝回答")
+        st.warning("信息不足或超出工具范围，请查看说明并补充条件")
     st.markdown(answer["answer"])
     render_citations(answer.get("citations") or [], bool(answer.get("refused")))
 
@@ -186,6 +183,10 @@ def render_answer(answer: dict) -> None:
 # ---------------------------------------------------------------------------
 # 连接状态：先问后端要 /info，连不上就只显示提示，不渲染其余界面。
 # ---------------------------------------------------------------------------
+
+if not st.session_state.get("access_token"):
+    render_login(client)
+    st.stop()  # 未登录时绝不渲染历史、记忆与问答区域。
 
 try:
     service_info = client.info()
@@ -195,8 +196,12 @@ try:
 except AgentApiError as error:
     st.title("劳动法知识库 RAG Agent")
     st.error(describe_error(error))
+    if error.is_unauthorized:
+        if st.button("返回登录"):
+            clear_login()
+            st.rerun()
+        st.stop()
     if st.button("重试连接", type="primary"):
-        st.cache_resource.clear()
         st.session_state.pop("identity", None)
         st.rerun()
     st.stop()
@@ -219,7 +224,8 @@ with st.sidebar:
         f"已连接 · {service_info['model']} · "
         f"{service_info['knowledge_chunks']} 条法条 · v{service_info['version']}"
     )
-    st.caption(f"你的身份：`{user_id}` · 令牌 {identity['token_label']}")
+    st.caption(f"当前账号：{identity.get('username', user_id)}")
+    st.button("退出登录", on_click=logout, use_container_width=True)
 
     st.button("新建会话", use_container_width=True, on_click=start_new_thread)
 

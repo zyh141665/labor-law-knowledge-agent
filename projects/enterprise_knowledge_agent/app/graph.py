@@ -9,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from openai import OpenAI
 
 from .models import AgentState
+from .overtime import format_overtime_report  # 数值答案由确定性工具结果生成。
 from .schemas import StructuredAnswer, validate_answer
 from .tools import ToolRegistry
 
@@ -66,6 +67,17 @@ def call_model_node(
             "拒答可以 citations=[]，也可以引用查过但不足以回答的真实条文并说明局限，"
             "所有引用仍必须逐字来自本次检索结果；不得用相关条文推断未规定的结论。"
             "若两部法律均有规定，应分别引用，不要只挑一部。"
+            "新增工具 query_holiday_calendar 查询官方日历，calculate_overtime_pay 计算加班费。"
+            "涉及具体日期和金额的加班费问题必须调用 calculate_overtime_pay，不得自行心算。"
+            "可从本会话用户明确提供的信息提取参数；不得把助手假设或长期记忆当作用户确认。"
+            "没有年份就追问年份，不能默认今年；未说明工时、补休、工资基数口径或工时制度就传 null。"
+            "只有用户明确确认后才设置 wage_basis_confirmed=true 和 work_schedule。"
+            "工具返回 needs_clarification 或 unsupported 时应追问或说明边界，禁止编造金额。"
+            "一个回合只调用一次 calculate_overtime_pay；缺参数时结束并追问，不反复重试或自行改变条件。"
+            "计算工具附带的是官方日历和政策证据；算式结果不是法条原文。"
+            "日历工具返回calendar_unavailable时，说明无法取得可靠资料，不得声称该年官方尚未公布。"
+            "日历data_origin=network表示本次联网，cache表示24小时内缓存；不得把缓存描述成刚刚联网。"
+            "用户明确要求更新日历时才设refresh_calendar=true，失败后不得通过反复调用绕过刷新失败。"
             "下面的用户长期记忆只用于调整交流方式，不属于法律条文证据，不得作为条文引用。"
             f"\n\n{memory_context}"
         ),
@@ -110,9 +122,11 @@ def execute_tools_node(state: AgentState, *, registry: ToolRegistry) -> dict:
     """执行白名单工具，把结果交回模型并保存本轮允许引用的证据。"""
     conversation_input = list(state["conversation_input"])
     retrieved_matches = list(state["retrieved_matches"])
+    tool_results = list(state.get("tool_results", []))  # 兼容旧检查点和测试初始状态。
 
     for tool_call in state["tool_calls"]:
         result = registry.execute(tool_call)
+        tool_results.append({"name": tool_call["name"], "result": result})
         print(f"执行工具：{tool_call['name']}")
         retrieved_matches.extend(result["matches"])
         conversation_input.append(
@@ -126,6 +140,7 @@ def execute_tools_node(state: AgentState, *, registry: ToolRegistry) -> dict:
         "conversation_input": conversation_input,
         "tool_calls": [],
         "retrieved_matches": retrieved_matches,
+        "tool_results": tool_results,
     }
 
 
@@ -135,10 +150,28 @@ def validate_answer_node(state: AgentState) -> dict:
     if raw_answer is None:
         raise ValueError("模型没有生成最终回答。")
     answer = StructuredAnswer.model_validate(raw_answer)
+    calculations = [  # 只信本轮真正执行过的工具，不能让模型伪造计算结果。
+        item["result"] for item in state.get("tool_results", [])
+        if item["name"] == "calculate_overtime_pay"
+    ]
+    if calculations:
+        if len(calculations) != 1:
+            answer = StructuredAnswer(answer="本轮存在多个计算请求，请一次提交一个明确的日期区间，避免混淆不同条件。", refused=True, citations=[])
+        elif calculations[0]["status"] == "ok":
+            result = calculations[0]
+            answer = StructuredAnswer(
+                answer=format_overtime_report(result), refused=False,
+                citations=[{"source_id": source["source_id"], "quote": source["text"]} for source in result["matches"]],
+            )
+        else:
+            answer = StructuredAnswer(
+                answer="目前不能给出确定金额：\n" + "\n".join(f"- {question}" for question in calculations[0]["questions"]),
+                refused=True, citations=[],
+            )
     if not validate_answer(answer, state["retrieved_matches"]):
         raise ValueError("模型回答未通过拒答状态或引用真实性校验。")
     print("最终答案校验：通过")
-    return {}
+    return {"final_answer": answer.model_dump()}  # 固定计算明细也保存进检查点。
 
 
 def build_agent_graph(

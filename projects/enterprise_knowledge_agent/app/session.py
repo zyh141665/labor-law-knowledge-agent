@@ -22,6 +22,7 @@ def build_turn_state(
             {"role": "user", "content": question},
         ],
         "tool_calls": [],  # 新回合开始时还没有产生工具请求。
+        "tool_results": [],  # 清掉上轮的日历与金额，不能拿旧计算回答新问题。
         "retrieved_matches": [],  # 只允许本轮重新检索到的证据支持本轮答案。
         "final_answer": None,  # 新回合开始时还没有最终回答。
         "round_number": 0,  # 最大轮数限制应当按每个用户回合重新计算。

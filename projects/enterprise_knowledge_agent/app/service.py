@@ -241,7 +241,7 @@ class AgentService:
                         yield {
                             "type": "status",
                             "stage": "retrieving",
-                            "message": "正在检索劳动法条文",
+                            "message": "正在调用工具：" + "、".join(str(call["name"]) for call in update["tool_calls"]),
                         }
                     else:
                         yield {
@@ -254,7 +254,7 @@ class AgentService:
                     yield {
                         "type": "status",
                         "stage": "retrieved",
-                        "message": f"已取得 {match_count} 条候选条文",
+                        "message": f"工具执行完成，当前取得 {match_count} 条法条或官方资料证据",
                         "match_count": match_count,
                     }
                     # 工具跑完，下一步必然是再调一次模型，此时预告「生成中」最准确。

@@ -57,11 +57,12 @@ def probe_backend(base_url: str) -> dict[str, object] | None:
     复用轻量 HTTP 客户端，以便加载同一份 .env、携带令牌并禁用本地代理。
     这个客户端不导入模型、检索器或数据库。
     """
-    client = AgentApiClient(base_url=base_url, timeout=3.0)
+    client = AgentApiClient(base_url=base_url, timeout=3.0, token="")
     try:
-        data = client.info()  # /info 需要认证，不能发送不带令牌的裸请求。
+        data = client.auth_config()  # 登录前只访问公开的账号模式接口。
+        data.update({"model": "登录后可见", "knowledge_chunks": "登录后可见", "version": "账号登录"})
     except AgentApiError as error:
-        print(f"[前端] 后端检查失败：{error.code}；请检查连接和访问令牌配置。")
+        print(f"[前端] 后端检查失败：{error.code}；请检查连接并确认已重启新版后端。")
         return None
     finally:
         client.close()  # 探测完成即释放连接，不与后续 Streamlit 进程共享。

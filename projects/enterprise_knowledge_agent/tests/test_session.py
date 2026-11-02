@@ -17,6 +17,7 @@ class FakeGraph:
                 ],
                 "retrieved_matches": [{"source_id": "old-source"}],
                 "round_number": 2,
+                "tool_results": [{"name": "calculate_overtime_pay", "result": {"total_overtime_pay": "999"}}],
             }
         )
 
@@ -30,5 +31,6 @@ def test_new_turn_keeps_history_but_resets_turn_fields() -> None:
     assert state["conversation_input"][-1]["content"] == "那第八天可以吗？"
     assert state["retrieved_matches"] == []
     assert state["tool_calls"] == []
+    assert state["tool_results"] == []  # 不能把上一轮算出的金额用于当前回合。
     assert state["final_answer"] is None
     assert state["round_number"] == 0

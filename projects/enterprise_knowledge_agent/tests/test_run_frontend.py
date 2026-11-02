@@ -19,15 +19,15 @@ def install_mock_client(monkeypatch, handler):
     monkeypatch.setattr(api_client.httpx, "Client", mock_client)
 
 
-def test_probe_sends_bearer_and_returns_info(monkeypatch):
+def test_probe_is_public_and_never_uses_shared_env_token(monkeypatch):
     def handler(request):
-        assert request.url.path == "/info"
-        assert request.headers["Authorization"] == "Bearer test-probe-token"
-        return httpx.Response(200, json={"model": "fake", "knowledge_chunks": 205})
+        assert request.url.path == "/auth/config"
+        assert "Authorization" not in request.headers
+        return httpx.Response(200, json={"mode": "accounts", "registration_enabled": True})
 
     install_mock_client(monkeypatch, handler)
 
-    assert run_frontend.probe_backend("http://backend.test")["knowledge_chunks"] == 205
+    assert run_frontend.probe_backend("http://backend.test")["mode"] == "accounts"
 
 
 def test_probe_reports_auth_failure_instead_of_only_connection_failure(

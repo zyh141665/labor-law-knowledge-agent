@@ -1,6 +1,7 @@
 """企业知识库 Agent 的 FastAPI HTTP 服务入口。"""
 
 import json  # 把流式事件数据编码成前端可以解析的 JSON 文本。
+import os  # 账号模式与旧令牌兼容模式必须显式区分。
 from collections.abc import AsyncIterator  # 标注生命周期和事件流生成器的返回类型。
 from contextlib import asynccontextmanager  # 在服务启动和关闭时管理共享资源。
 from time import perf_counter  # 统计每个 HTTP 请求从进入到返回的耗时。
@@ -9,6 +10,8 @@ from uuid import uuid4  # 为每个请求生成难以重复的追踪 ID。
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request  # 创建路由、依赖和 HTTP 错误。
 from fastapi.responses import StreamingResponse  # 持续发送 SSE 事件而不是一次性 JSON。
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from starlette.concurrency import iterate_in_threadpool  # 逐步拉取同步生成器而不阻塞事件循环。
 from openai import OpenAI, OpenAIError  # 创建 DeepSeek 客户端并识别上游 API 错误。
 from pydantic import BaseModel, Field, StrictBool, ValidationError  # 严格区分明确确认和字符串等伪布尔值。
@@ -17,7 +20,10 @@ from .auth import (  # 令牌认证：从凭证推导身份，不信任客户端
     Principal,
     authenticate,
     load_token_map,
+    parse_bearer,
 )
+from .accounts import AccountStore
+from .accounts_api import router as accounts_router
 from .chat_history import (  # 把每轮问答投影成可回看的历史会话。
     ChatHistory,
     ChatMessage,
@@ -30,6 +36,7 @@ from .config import (  # 读取配置与统一阈值，并对外报告实际生�
     KNOWLEDGE_MIN_SCORE,
     KNOWLEDGE_TOP_K,
     load_settings,
+    load_env,
 )
 from .memory import open_memory_store  # 长期记忆存储的打开与关闭。
 from .memory_policy import MemoryCandidate  # 候选记忆的数据结构，用于响应模型。
@@ -184,15 +191,19 @@ def require_principal(
     令牌表在启动时加载到 ``app.state``，所以这里不读环境变量，
     也就能被测试用依赖覆盖的方式替换掉。
     """
+    account_store = getattr(request.app.state, "account_store", None)
     token_map = getattr(request.app.state, "auth_tokens", None)
-    if not token_map:  # 正常启动不会走到这里，属于防御性检查。
+    if account_store is not None:
+        principal = account_store.authenticate(parse_bearer(authorization))
+    elif token_map and getattr(request.app.state, "auth_mode", "legacy_tokens") == "legacy_tokens":
+        principal = authenticate(token_map, authorization)  # 仅兼容显式启用的旧模式。
+    else:
         raise api_error(
             503,
             "auth_not_configured",
             "后端没有加载访问令牌，认证功能不可用。",
         )
 
-    principal = authenticate(token_map, authorization)
     if principal is None:
         # 401 而不是 403：客户端还没证明自己是谁，应该去拿凭证重试。
         # 带上 WWW-Authenticate 才是合规的 Bearer 认证响应。
@@ -261,8 +272,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("service_starting")  # 记录服务生命周期开始，但不记录密钥配置。
     # 认证配置先于模型加载检查：配错令牌时立刻失败，
     # 不用白等二十秒把 Embedding 模型装进来才报错。
-    app.state.auth_tokens = load_token_map()  # 没有配置时抛错，后端拒绝启动。
-    logger.info("auth_tokens_loaded count=%s", len(app.state.auth_tokens))
+    load_env()
+    mode = os.getenv("AGENT_AUTH_MODE", "accounts").strip()
+    if mode not in {"accounts", "legacy_tokens"}:
+        raise RuntimeError("AGENT_AUTH_MODE只能是accounts或legacy_tokens。")
+    app.state.auth_mode = mode
+    app.state.auth_tokens = load_token_map() if mode == "legacy_tokens" else {}
+    app.state.account_store = AccountStore() if mode == "accounts" else None
+    logger.info("auth_mode_loaded mode=%s", mode)
     settings = load_settings()  # API Key 或模型配置缺失时直接阻止错误服务启动。
     knowledge_base = VectorKnowledgeBase.from_disk()  # Embedding 模型和索引只加载一次。
     client = OpenAI(  # 所有 HTTP 请求复用同一个 DeepSeek 客户端。
@@ -301,6 +318,17 @@ app = FastAPI(  # 创建 Uvicorn 将要加载的 ASGI 应用对象。
     version="0.4.0",  # 与 /health 和 /info 对外报告的版本保持一致。
     lifespan=lifespan,  # 注册共享资源的启动和关闭流程。
 )
+app.include_router(accounts_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def redact_auth_validation(request: Request, error: RequestValidationError):
+    if request.url.path.startswith("/auth/"):
+        return JSONResponse(status_code=422, content={"detail": {
+            "code": "invalid_credentials_format", "message": "用户名或密码格式不符合要求。用户名3—32位，密码12—128个字符。",
+        }})  # 不回显password输入、错误上下文或整个请求体。
+    from fastapi.exception_handlers import request_validation_exception_handler
+    return await request_validation_exception_handler(request, error)
 
 
 @app.middleware("http")
@@ -314,6 +342,8 @@ async def request_logging_middleware(request: Request, call_next):
         response = await call_next(request)  # 继续执行路由、依赖和业务层。
         status_code = response.status_code  # 取得最终 HTTP 状态码。
         response.headers["X-Request-ID"] = request_id  # 客户端可用此 ID 查询日志。
+        if request.url.path.startswith("/auth/") or request.url.path == "/me":
+            response.headers["Cache-Control"] = "no-store"
         return response
     finally:
         elapsed_seconds = perf_counter() - started_at  # 无论成功失败都记录耗时。
